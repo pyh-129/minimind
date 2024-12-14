@@ -98,7 +98,13 @@ def train_epoch(epoch, wandb):
             else:
                 state_dict = model.state_dict()
 
-            torch.save(state_dict, ckp)
+            # torch.save(state_dict, ckp)
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': state_dict,
+                'optimizer_state_dict': optimizer.state_dict(),
+            }, ckp)
+            print(f"Checkpoint saved at epoch {epoch}")
             model.train()
 
 
@@ -140,7 +146,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_wandb", action="store_true", help="Use Weights & Biases")
     parser.add_argument("--wandb_project", type=str, default="MiniMind-Pretrain", help="Weights & Biases project name")
     parser.add_argument("--num_workers", type=int, default=1, help="Number of workers for data loading")
-    parser.add_argument("--data_path", type=str, default="./dataset/pretrain_data.csv", help="Path to training data")
+    parser.add_argument("--data_path", type=str, default="./dataset2/minimind_dataset/pretrain_data.csv", help="Path to training data")
     parser.add_argument("--ddp", action="store_true", help="Use DistributedDataParallel")
     parser.add_argument("--accumulation_steps", type=int, default=8, help="Gradient accumulation steps")
     parser.add_argument("--grad_clip", type=float, default=1.0, help="Gradient clipping threshold")
@@ -172,7 +178,9 @@ if __name__ == "__main__":
 
     if args.use_wandb and (not ddp or ddp_local_rank == 0):
         import wandb
-
+        # wandb_api = os.environ.get("WANDB_API_KEY")
+        # if wandb_api:
+        #     wandb.login(key=wandb_api)
         wandb.init(project=args.wandb_project, name=args.wandb_run_name)
     else:
         wandb = None
@@ -194,7 +202,15 @@ if __name__ == "__main__":
 
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype in ['float16', 'bfloat16']))
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
-
+    start_epoch = 0
+    checkpoint_path =f"{args.save_dir}/pretrain_{lm_config.dim}.pth"
+    if os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        print(f"Resuming from epoch {start_epoch}")
+    
     if False and platform.system() != 'Windows' and float(torch.__version__.split('.')[0]) >= 2:
         Logger("compiling the model... (takes a ~minute)")
         unoptimized_model = model
